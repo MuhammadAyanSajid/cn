@@ -35,6 +35,10 @@ def send_packet(sock, cmd_type, data_dict, is_encrypted=True):
     4. Send Header + Encrypted Payload
     """
     try:
+        # Check if socket is valid
+        if sock is None or sock.fileno() == -1:
+            return False
+            
         payload = {'type': cmd_type, 'data': data_dict}
         packed_payload = msgpack.packb(payload)
         
@@ -48,6 +52,13 @@ def send_packet(sock, cmd_type, data_dict, is_encrypted=True):
         
         sock.sendall(header + final_payload)
         return True
+    except OSError as e:
+        # Socket-specific errors (including WinError 10038)
+        if e.errno == 10038:
+            print("[PROTOCOL] Socket is not valid (already closed)")
+        else:
+            print(f"[PROTOCOL SEND ERROR] {e}")
+        return False
     except Exception as e:
         print(f"[PROTOCOL SEND ERROR] {e}")
         return False

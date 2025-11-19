@@ -10,15 +10,28 @@ CHUNK = 1024
 
 class AudioRecorder:
     def __init__(self):
-        self.audio = pyaudio.PyAudio()
-        self.stream = None
-        self.recording = False
+        try:
+            self.audio = pyaudio.PyAudio()
+            self.stream = None
+            self.recording = False
+        except Exception as e:
+            print(f"[ERROR] Failed to initialize audio recorder: {e}")
+            self.audio = None
+            self.stream = None
+            self.recording = False
 
     def start(self):
-        self.recording = True
-        self.stream = self.audio.open(format=FORMAT, channels=CHANNELS,
-                                      rate=RATE, input=True,
-                                      frames_per_buffer=CHUNK)
+        if self.audio is None:
+            return
+        try:
+            self.recording = True
+            self.stream = self.audio.open(format=FORMAT, channels=CHANNELS,
+                                          rate=RATE, input=True,
+                                          frames_per_buffer=CHUNK)
+        except Exception as e:
+            print(f"[ERROR] Failed to start audio recording: {e}")
+            self.recording = False
+            self.stream = None
 
     def get_chunk(self):
         if self.recording and self.stream:
@@ -31,39 +44,69 @@ class AudioRecorder:
     def stop(self):
         self.recording = False
         if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
+            try:
+                self.stream.stop_stream()
+                self.stream.close()
+            except:
+                pass
 
 class AudioPlayer:
     def __init__(self):
-        self.audio = pyaudio.PyAudio()
-        self.stream = self.audio.open(format=FORMAT, channels=CHANNELS,
-                                      rate=RATE, output=True,
-                                      frames_per_buffer=CHUNK)
+        try:
+            self.audio = pyaudio.PyAudio()
+            self.stream = self.audio.open(format=FORMAT, channels=CHANNELS,
+                                          rate=RATE, output=True,
+                                          frames_per_buffer=CHUNK)
+        except Exception as e:
+            print(f"[ERROR] Failed to initialize audio player: {e}")
+            self.audio = None
+            self.stream = None
 
     def play(self, data):
-        try:
-            self.stream.write(data)
-        except:
-            pass
+        if self.stream:
+            try:
+                self.stream.write(data)
+            except:
+                pass
             
     def cleanup(self):
-        self.stream.stop_stream()
-        self.stream.close()
+        if self.stream:
+            try:
+                self.stream.stop_stream()
+                self.stream.close()
+            except:
+                pass
 
 class VideoCamera:
     def __init__(self):
-        self.cap = cv2.VideoCapture(0) # Open default camera
+        try:
+            self.cap = cv2.VideoCapture(0) # Open default camera
+            if not self.cap.isOpened():
+                print("[WARNING] Camera not available")
+                self.cap = None
+        except Exception as e:
+            print(f"[ERROR] Failed to initialize camera: {e}")
+            self.cap = None
         
     def get_frame_bytes(self):
-        ret, frame = self.cap.read()
-        if ret:
-            # Downscale for network performance
-            frame = cv2.resize(frame, (320, 240))
-            # Compress to JPEG
-            _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
-            return buffer.tobytes()
+        if self.cap is None:
+            return None
+        try:
+            ret, frame = self.cap.read()
+            if ret:
+                # Downscale for network performance
+                frame = cv2.resize(frame, (320, 240))
+                # Compress to JPEG
+                success, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+                if success:
+                    return buffer.tobytes()
+        except Exception as e:
+            print(f"[ERROR] Frame capture failed: {e}")
         return None
 
     def cleanup(self):
-        self.cap.release()
+        if self.cap is not None:
+            try:
+                self.cap.release()
+            except:
+                pass

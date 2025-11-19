@@ -197,40 +197,85 @@ class ClientApp:
         threading.Thread(target=self.send_audio_stream, args=(self.target_user,), daemon=True).start()
 
     def setup_call_window(self, target, incoming=False):
+        if self.call_window: return # Prevent duplicate windows
         self.in_call = True
         self.call_window = tk.Toplevel(self.root)
         title = f"Incoming Call from {target}" if incoming else f"Calling {target}..."
         self.call_window.title(title)
         self.call_window.protocol("WM_DELETE_WINDOW", self.end_call)
 
-        self.video_label = tk.Label(self.call_window)
-        self.video_label.pack()
+        # Set default size and background
+        self.call_window.geometry("400x300")
+        self.video_label = tk.Label(self.call_window, text="Waiting for video...", bg="black", fg="white")
+        self.video_label.pack(fill=tk.BOTH, expand=True)
 
     def end_call(self):
         self.in_call = False
         if self.call_window:
-            self.call_window.destroy()
+            try:
+                self.call_window.destroy()
+            except:
+                pass
             self.call_window = None
 
     def send_video_stream(self, target):
-        camera = VideoCamera()
+        try:
+            camera = VideoCamera()
+            if camera.cap is None:
+                # Camera not available
+                self.root.after(0, lambda: messagebox.showerror(
+                    "Camera Error", 
+                    "Cannot access camera. Video call will continue with audio only."
+                ))
+                return
+        except Exception as e:
+            print(f"[ERROR] Failed to initialize camera: {e}")
+            self.root.after(0, lambda: messagebox.showerror(
+                "Camera Error", 
+                f"Failed to start camera: {e}"
+            ))
+            return
+            
         while self.in_call and self.is_connected:
-            frame_bytes = camera.get_frame_bytes()
-            if frame_bytes:
-                # Send via server
-                data = {"target": target, "frame": frame_bytes}
-                protocol.send_packet(self.client_socket, protocol.CMD_VIDEO, data, is_encrypted=False)
-            time.sleep(0.05) # Cap at ~20 FPS
+            try:
+                frame_bytes = camera.get_frame_bytes()
+                if frame_bytes and self.client_socket:
+                    # Send via server
+                    data = {"target": target, "frame": frame_bytes}
+                    if not protocol.send_packet(self.client_socket, protocol.CMD_VIDEO, data, is_encrypted=True):
+                        print("[VIDEO] Failed to send frame")
+                        break
+                time.sleep(0.05) # Cap at ~20 FPS
+            except Exception as e:
+                print(f"[VIDEO ERROR] {e}")
+                break
         camera.cleanup()
 
     def send_audio_stream(self, target):
-        mic = AudioRecorder()
-        mic.start()
+        try:
+            mic = AudioRecorder()
+            if mic.audio is None:
+                print("[WARNING] Audio device not available")
+                return
+            mic.start()
+            if mic.stream is None:
+                print("[WARNING] Failed to start audio stream")
+                return
+        except Exception as e:
+            print(f"[ERROR] Failed to initialize microphone: {e}")
+            return
+            
         while self.in_call and self.is_connected:
-            chunk = mic.get_chunk()
-            if chunk:
-                data = {"target": target, "chunk": chunk}
-                protocol.send_packet(self.client_socket, protocol.CMD_AUDIO, data, is_encrypted=False)
+            try:
+                chunk = mic.get_chunk()
+                if chunk and self.client_socket:
+                    data = {"target": target, "chunk": chunk}
+                    if not protocol.send_packet(self.client_socket, protocol.CMD_AUDIO, data, is_encrypted=True):
+                        print("[AUDIO] Failed to send chunk")
+                        break
+            except Exception as e:
+                print(f"[AUDIO ERROR] {e}")
+                break
         mic.stop()
 
     def update_call_video(self, frame_bytes):
@@ -239,15 +284,20 @@ class ClientApp:
         try:
             image = Image.open(io.BytesIO(frame_bytes))
             photo = ImageTk.PhotoImage(image)
-            self.video_label.configure(image=photo)
+            self.video_label.configure(image=photo, text="") # Clear text when video arrives
             self.video_label.image = photo # keep reference
-        except: pass
+        except Exception as e:
+            print(f"[GUI ERROR] Update video failed: {e}")
 
     # --- Network Listener ---
 
     def listen_server(self):
         # Audio player is persistent to reduce lag in startup
-        player = AudioPlayer()
+        try:
+            player = AudioPlayer()
+        except Exception as e:
+            print(f"[WARNING] Audio player initialization failed: {e}")
+            player = None
         
         while self.is_connected:
             packet = protocol.receive_packet(self.client_socket)
@@ -304,12 +354,21 @@ class ClientApp:
 
             elif cmd == protocol.CMD_AUDIO:
                 # Play directly in thread (audio is non-blocking)
-                chunk = data['chunk']
-                player.play(chunk)
+                if player and player.stream:
+                    chunk = data['chunk']
+                    player.play(chunk)
         
-        player.cleanup()
-        self.client_socket.close()
-        self.root.quit()
+        if player:
+            player.cleanup()
+        try:
+            if self.client_socket:
+                self.client_socket.close()
+        except:
+            pass
+        try:
+            self.root.quit()
+        except:
+            pass
 
 if __name__ == "__main__":
     root = tk.Tk()

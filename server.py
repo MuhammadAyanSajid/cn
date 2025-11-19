@@ -34,9 +34,14 @@ class ChatServer:
             else:
                 targets = list(self.clients.keys())
 
-            for client_socket in targets:
-                if client_socket != exclude_socket:
-                    protocol.send_packet(client_socket, msg_packet['type'], msg_packet['data'])
+        for client_socket in targets:
+            if client_socket != exclude_socket:
+                try:
+                    # Check if socket is still valid
+                    if client_socket and client_socket.fileno() != -1:
+                        protocol.send_packet(client_socket, msg_packet['type'], msg_packet['data'])
+                except Exception as e:
+                    print(f"[BROADCAST ERROR] {e}")
 
     def handle_private_msg(self, sender, target_user, text):
         target_socket = self.username_to_socket.get(target_user)
@@ -124,11 +129,16 @@ class ChatServer:
                      if target:
                          target_sock = self.username_to_socket.get(target)
                          if target_sock:
-                             # Forward directly to target
-                             packet_to_send = packet 
-                             # Inject Sender
-                             packet_to_send['data']['sender'] = username
-                             protocol.send_packet(target_sock, cmd, packet_to_send['data'])
+                             try:
+                                 # Check if target socket is still valid
+                                 if target_sock.fileno() != -1:
+                                     # Forward directly to target
+                                     packet_to_send = packet 
+                                     # Inject Sender
+                                     packet_to_send['data']['sender'] = username
+                                     protocol.send_packet(target_sock, cmd, packet_to_send['data'])
+                             except Exception as e:
+                                 print(f"[MEDIA ROUTING ERROR] {e}")
 
         except Exception as e:
             print(f"[ERROR] {username}: {e}")
