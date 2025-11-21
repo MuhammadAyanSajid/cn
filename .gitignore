@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.vscode/
+.DS_Store
+.idea/
+logs/
+*.log
+uploads/
+calls/
+temp/
+thumbs.db
+node_modules/

@@ -58,7 +58,10 @@ class ClientApp:
         
         tk.Button(tool_frame, text="Attach File", command=self.send_file).pack(side=tk.LEFT)
         tk.Button(tool_frame, text="Create Room", command=self.create_room).pack(side=tk.LEFT)
-        tk.Button(tool_frame, text="Start Video Call", command=self.start_call, bg="#2196F3", fg="white").pack(side=tk.RIGHT)
+        
+        # Call Buttons
+        tk.Button(tool_frame, text="Video Call", command=lambda: self.start_call("video"), bg="#2196F3", fg="white").pack(side=tk.RIGHT, padx=2)
+        tk.Button(tool_frame, text="Voice Call", command=lambda: self.start_call("voice"), bg="#FF9800", fg="white").pack(side=tk.RIGHT, padx=2)
 
         # -- Right Side: User List & Rooms --
         right_frame = tk.Frame(self.root, width=200, bg="lightgray")
@@ -132,13 +135,15 @@ class ClientApp:
     def create_room(self):
         room_name = simpledialog.askstring("Room", "New Room Name:")
         if room_name:
-            protocol.send_packet(self.client_socket, protocol.CMD_ROOM_JOIN, {"room": room_name})
+            password = simpledialog.askstring("Password", "Set Room Password (optional):", show='*')
+            protocol.send_packet(self.client_socket, protocol.CMD_ROOM_JOIN, {"room": room_name, "password": password})
 
     def join_room(self, event):
         selection = self.room_listbox.curselection()
         if selection:
             room = self.room_listbox.get(selection[0])
-            protocol.send_packet(self.client_socket, protocol.CMD_ROOM_JOIN, {"room": room})
+            password = simpledialog.askstring("Password", f"Enter Password for {room} (if any):", show='*')
+            protocol.send_packet(self.client_socket, protocol.CMD_ROOM_JOIN, {"room": room, "password": password})
 
     def append_message(self, msg_type, sender, content):
         self.chat_area.config(state='normal')
@@ -189,31 +194,47 @@ class ClientApp:
 
     # --- Video/Voice Calling (Threaded) ---
 
-    def start_call(self):
+    def start_call(self, mode="video"):
         if self.target_user == "All":
             messagebox.showwarning("Call", "Select a user from the list to call.")
             return
             
         # Open Call Window
-        self.setup_call_window(target=self.target_user, incoming=False)
+        self.setup_call_window(target=self.target_user, incoming=False, mode=mode)
         
         # Launch transmission threads
-        threading.Thread(target=self.send_video_stream, args=(self.target_user,), daemon=True).start()
+        if mode == "video":
+            threading.Thread(target=self.send_video_stream, args=(self.target_user,), daemon=True).start()
+        
+        # Audio is always sent in both modes
         threading.Thread(target=self.send_audio_stream, args=(self.target_user,), daemon=True).start()
 
-    def setup_call_window(self, target, incoming=False):
-        if self.call_window: return # Prevent duplicate windows
+    def setup_call_window(self, target, incoming=False, mode="video"):
+        if self.call_window: 
+            # If already in call (e.g. voice), and upgrading to video, handle it?
+            # For now, simple check
+            return 
+            
         self.in_call = True
         self.call_partner = target
         self.call_window = tk.Toplevel(self.root)
-        title = f"Video Call with {target}"
+        
+        call_type = "Video" if mode == "video" else "Voice"
+        title = f"{call_type} Call with {target}"
         self.call_window.title(title)
         self.call_window.protocol("WM_DELETE_WINDOW", self.end_call)
 
         # Set default size and background
         self.call_window.geometry("500x400")
-        self.video_label = tk.Label(self.call_window, text="Waiting for video...", bg="black", fg="white")
-        self.video_label.pack(fill=tk.BOTH, expand=True)
+        
+        if mode == "video":
+            self.video_label = tk.Label(self.call_window, text="Waiting for video...", bg="black", fg="white")
+            self.video_label.pack(fill=tk.BOTH, expand=True)
+        else:
+            # Voice Call UI
+            self.video_label = tk.Label(self.call_window, text=f"Voice Call in Progress\n\n{target}", 
+                                      bg="#333", fg="white", font=("Arial", 16))
+            self.video_label.pack(fill=tk.BOTH, expand=True)
         
         # End Call Button
         end_btn = tk.Button(self.call_window, text="End Call", command=self.end_call, 
@@ -364,7 +385,7 @@ class ClientApp:
                 # For this demo: Open window automatically if receiving frames
                 if not self.in_call:
                      sender = data.get('sender')
-                     self.root.after(0, lambda: self.setup_call_window(target=sender, incoming=True))
+                     self.root.after(0, lambda: self.setup_call_window(target=sender, incoming=True, mode="video"))
                      self.in_call = True
                      
                      # Start sending back video/audio
@@ -376,6 +397,15 @@ class ClientApp:
                 self.root.after(0, lambda: self.update_call_video(frame))
 
             elif cmd == protocol.CMD_AUDIO:
+                # If receiving audio but not in call, it's a voice call
+                if not self.in_call:
+                     sender = data.get('sender')
+                     self.root.after(0, lambda: self.setup_call_window(target=sender, incoming=True, mode="voice"))
+                     self.in_call = True
+                     
+                     # Start sending back audio only (Voice Call)
+                     threading.Thread(target=self.send_audio_stream, args=(sender,), daemon=True).start()
+
                 # Play directly in thread (audio is non-blocking)
                 if player and player.stream:
                     chunk = data['chunk']

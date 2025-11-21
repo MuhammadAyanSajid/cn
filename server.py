@@ -14,8 +14,8 @@ class ChatServer:
         self.clients = {} 
         # Reverse map: username -> socket (for quick lookup)
         self.username_to_socket = {}
-        # Rooms: room_name -> list[username]
-        self.rooms = {"General": []} 
+        # Rooms: room_name -> {"users": [username], "password": password}
+        self.rooms = {"General": {"users": [], "password": None}} 
         
         self.lock = threading.Lock()
 
@@ -39,10 +39,12 @@ class ChatServer:
         with self.lock:
             targets = []
             if target_room:
-                users = self.rooms.get(target_room, [])
-                for user in users:
-                    sock = self.username_to_socket.get(user)
-                    if sock: targets.append(sock)
+                room_data = self.rooms.get(target_room)
+                if room_data:
+                    users = room_data["users"]
+                    for user in users:
+                        sock = self.username_to_socket.get(user)
+                        if sock: targets.append(sock)
             else:
                 targets = list(self.clients.keys())
 
@@ -89,7 +91,7 @@ class ChatServer:
                     with self.lock:
                         self.clients[client_socket] = username
                         self.username_to_socket[username] = client_socket
-                        self.rooms["General"].append(username)
+                        self.rooms["General"]["users"].append(username)
                     
                     print(f"[NEW CONN] {username} connected.")
                     self.send_active_list()
@@ -107,14 +109,28 @@ class ChatServer:
 
                 elif cmd == protocol.CMD_ROOM_JOIN:
                     new_room = data['room']
+                    password = data.get('password')
+                    
                     with self.lock:
-                        # Remove from old
-                        if username in self.rooms.get(current_room, []):
-                            self.rooms[current_room].remove(username)
-                        # Add to new (create if missing)
-                        if new_room not in self.rooms:
-                            self.rooms[new_room] = []
-                        self.rooms[new_room].append(username)
+                        # Check if room exists
+                        if new_room in self.rooms:
+                            # Verify password if one is set
+                            room_pass = self.rooms[new_room]["password"]
+                            if room_pass and room_pass != password:
+                                protocol.send_packet(client_socket, protocol.CMD_MSG, 
+                                                   {"from": "System", "text": f"Incorrect password for {new_room}"})
+                                continue # Skip joining
+                        else:
+                            # Create new room
+                            self.rooms[new_room] = {"users": [], "password": password}
+
+                        # Remove from old room
+                        old_room_data = self.rooms.get(current_room)
+                        if old_room_data and username in old_room_data["users"]:
+                            old_room_data["users"].remove(username)
+                            
+                        # Add to new room
+                        self.rooms[new_room]["users"].append(username)
                         current_room = new_room
                     
                     self.send_active_list()
@@ -172,8 +188,10 @@ class ChatServer:
                     del self.clients[client_socket]
                 if username in self.username_to_socket:
                     del self.username_to_socket[username]
-                if username in self.rooms[current_room]:
-                    self.rooms[current_room].remove(username)
+                
+                room_data = self.rooms.get(current_room)
+                if room_data and username in room_data["users"]:
+                    room_data["users"].remove(username)
             
             client_socket.close()
             self.send_active_list()
