@@ -148,7 +148,7 @@ class ChatServer:
                                      packet_to_send = packet 
                                      # Inject Sender
                                      packet_to_send['data']['sender'] = username
-                                     protocol.send_packet(target_sock, cmd, packet_to_send['data'], is_encrypted=False)
+                                     protocol.send_packet(target_sock, cmd, packet_to_send['data'], is_encrypted=True)
                              except Exception as e:
                                  print(f"[MEDIA ROUTING ERROR] {e}")
                 

@@ -259,9 +259,9 @@ class ClientApp:
             try:
                 frame_bytes = camera.get_frame_bytes()
                 if frame_bytes and self.client_socket:
-                    # Send via server (unencrypted for speed)
+                    # Send via server (encrypted again to match receiver expectation)
                     data = {"target": target, "frame": frame_bytes}
-                    if not protocol.send_packet(self.client_socket, protocol.CMD_VIDEO, data, is_encrypted=False):
+                    if not protocol.send_packet(self.client_socket, protocol.CMD_VIDEO, data, is_encrypted=True):
                         print("[VIDEO] Failed to send frame")
                         break
                 time.sleep(0.1) # Cap at ~10 FPS for better performance
@@ -289,7 +289,7 @@ class ClientApp:
                 chunk = mic.get_chunk()
                 if chunk and self.client_socket:
                     data = {"target": target, "chunk": chunk}
-                    if not protocol.send_packet(self.client_socket, protocol.CMD_AUDIO, data, is_encrypted=False):
+                    if not protocol.send_packet(self.client_socket, protocol.CMD_AUDIO, data, is_encrypted=True):
                         print("[AUDIO] Failed to send chunk")
                         break
             except Exception as e:
