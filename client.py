@@ -21,6 +21,7 @@ class ClientApp:
         self.username = ""
         self.is_connected = False
         self.target_user = "All" # "All" or specific username
+        self.send_lock = threading.Lock() # Prevent socket contention
         
         # Call State
         self.in_call = False
@@ -89,7 +90,8 @@ class ClientApp:
             self.client_socket.connect((host, protocol.PORT))
             
             # Send Login Packet
-            protocol.send_packet(self.client_socket, protocol.CMD_LOGIN, {'username': self.username})
+            with self.send_lock:
+                protocol.send_packet(self.client_socket, protocol.CMD_LOGIN, {'username': self.username})
             
             self.is_connected = True
             
@@ -123,12 +125,13 @@ class ClientApp:
         text = self.msg_entry.get()
         if not text: return
         
-        if self.target_user == "All":
-            # Public
-            protocol.send_packet(self.client_socket, protocol.CMD_MSG, {"text": text, "to": "All"})
-        else:
-            # Private
-            protocol.send_packet(self.client_socket, protocol.CMD_MSG, {"text": text, "to": self.target_user})
+        with self.send_lock:
+            if self.target_user == "All":
+                # Public
+                protocol.send_packet(self.client_socket, protocol.CMD_MSG, {"text": text, "to": "All"})
+            else:
+                # Private
+                protocol.send_packet(self.client_socket, protocol.CMD_MSG, {"text": text, "to": self.target_user})
             
         self.msg_entry.delete(0, tk.END)
 
@@ -136,14 +139,16 @@ class ClientApp:
         room_name = simpledialog.askstring("Room", "New Room Name:")
         if room_name:
             password = simpledialog.askstring("Password", "Set Room Password (optional):", show='*')
-            protocol.send_packet(self.client_socket, protocol.CMD_ROOM_JOIN, {"room": room_name, "password": password})
+            with self.send_lock:
+                protocol.send_packet(self.client_socket, protocol.CMD_ROOM_JOIN, {"room": room_name, "password": password})
 
     def join_room(self, event):
         selection = self.room_listbox.curselection()
         if selection:
             room = self.room_listbox.get(selection[0])
             password = simpledialog.askstring("Password", f"Enter Password for {room} (if any):", show='*')
-            protocol.send_packet(self.client_socket, protocol.CMD_ROOM_JOIN, {"room": room, "password": password})
+            with self.send_lock:
+                protocol.send_packet(self.client_socket, protocol.CMD_ROOM_JOIN, {"room": room, "password": password})
 
     def append_message(self, msg_type, sender, content):
         self.chat_area.config(state='normal')
@@ -181,7 +186,8 @@ class ClientApp:
             "to": self.target_user if self.target_user != "All" else None
         }
         
-        protocol.send_packet(self.client_socket, protocol.CMD_FILE, data)
+        with self.send_lock:
+            protocol.send_packet(self.client_socket, protocol.CMD_FILE, data)
         self.append_message("text", "Me", f"Sent file: {filename}")
 
     def save_incoming_file(self, filename, content):
@@ -245,7 +251,8 @@ class ClientApp:
         # Notify other user that call is ending
         if self.call_partner and self.client_socket:
             try:
-                protocol.send_packet(self.client_socket, protocol.CMD_END_CALL, {"target": self.call_partner})
+                with self.send_lock:
+                    protocol.send_packet(self.client_socket, protocol.CMD_END_CALL, {"target": self.call_partner})
             except:
                 pass
         
@@ -282,9 +289,10 @@ class ClientApp:
                 if frame_bytes and self.client_socket:
                     # Send via server (encrypted again to match receiver expectation)
                     data = {"target": target, "frame": frame_bytes}
-                    if not protocol.send_packet(self.client_socket, protocol.CMD_VIDEO, data, is_encrypted=True):
-                        print("[VIDEO] Failed to send frame")
-                        break
+                    with self.send_lock:
+                        if not protocol.send_packet(self.client_socket, protocol.CMD_VIDEO, data, is_encrypted=True):
+                            print("[VIDEO] Failed to send frame")
+                            break
                 time.sleep(0.1) # Cap at ~10 FPS for better performance
             except Exception as e:
                 print(f"[VIDEO ERROR] {e}")
@@ -310,9 +318,12 @@ class ClientApp:
                 chunk = mic.get_chunk()
                 if chunk and self.client_socket:
                     data = {"target": target, "chunk": chunk}
-                    if not protocol.send_packet(self.client_socket, protocol.CMD_AUDIO, data, is_encrypted=True):
-                        print("[AUDIO] Failed to send chunk")
-                        break
+                    with self.send_lock:
+                        if not protocol.send_packet(self.client_socket, protocol.CMD_AUDIO, data, is_encrypted=True):
+                            print("[AUDIO] Failed to send chunk")
+                            break
+                else:
+                    time.sleep(0.01) # Prevent CPU spin if no audio
             except Exception as e:
                 print(f"[AUDIO ERROR] {e}")
                 break
@@ -340,9 +351,21 @@ class ClientApp:
             player = None
         
         while self.is_connected:
-            packet = protocol.receive_packet(self.client_socket)
-            if not packet:
-                print("Disconnected from server")
+            try:
+                packet = protocol.receive_packet(self.client_socket)
+                if not packet:
+                    print("Disconnected from server")
+                    self.is_connected = False
+                    break
+            except OSError as e:
+                if e.errno == 10054:
+                    print("Connection forcibly closed by server.")
+                else:
+                    print(f"Socket Error: {e}")
+                self.is_connected = False
+                break
+            except Exception as e:
+                print(f"Receive Error: {e}")
                 self.is_connected = False
                 break
                 

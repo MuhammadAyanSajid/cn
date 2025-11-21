@@ -5,7 +5,7 @@ import threading
 # Audio Config
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 44100
+RATE = 16000 # Reduced from 44100 to save bandwidth
 CHUNK = 1024
 
 class AudioRecorder:
