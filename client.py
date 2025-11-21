@@ -366,6 +366,10 @@ class ClientApp:
                      sender = data.get('sender')
                      self.root.after(0, lambda: self.setup_call_window(target=sender, incoming=True))
                      self.in_call = True
+                     
+                     # Start sending back video/audio
+                     threading.Thread(target=self.send_video_stream, args=(sender,), daemon=True).start()
+                     threading.Thread(target=self.send_audio_stream, args=(sender,), daemon=True).start()
                 
                 frame = data['frame']
                 # GUI update must be scheduled on Main Thread for image
