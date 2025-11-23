@@ -12,40 +12,45 @@ from media_utils import VideoCamera, AudioRecorder, AudioPlayer
 
 
 class ClientApp:
+    """
+    Main client application class using Tkinter for GUI.
+    Handles connection, messaging, file transfer, and media calls.
+    """
+
     def __init__(self, root):
         self.root = root
         self.root.title("PyChat Pro - University Edition")
         self.root.geometry("900x600")
 
-        # Networking
+        # Network and user state
         self.client_socket = None
         self.username = ""
         self.is_connected = False
-        self.target_user = "All"  # "All" or specific username
-        self.send_lock = threading.Lock()  # Prevent socket contention
+        self.target_user = "All"  # Default to broadcast
+        self.send_lock = threading.Lock()
 
-        # Call State
+        # Call state
         self.in_call = False
         self.call_window = None
         self.call_partner = None
         self.last_call_partner = None
         self.last_call_end_time = 0
 
-        # UI Layout
         self.setup_ui()
 
-        # Connect prompt
         self.connect_to_server()
 
     def setup_ui(self):
-        # -- Left Side: Chat & Input --
+        """Initializes the GUI components."""
         left_frame = tk.Frame(self.root, width=600)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
+        # Chat display area
         self.chat_area = scrolledtext.ScrolledText(left_frame, wrap=tk.WORD)
-        self.chat_area.config(state="disabled")  # Read only
+        self.chat_area.config(state="disabled")
         self.chat_area.pack(fill=tk.BOTH, expand=True)
 
+        # Input area
         input_frame = tk.Frame(left_frame)
         input_frame.pack(fill=tk.X, pady=5)
 
@@ -58,7 +63,7 @@ class ClientApp:
         )
         send_btn.pack(side=tk.LEFT, padx=5)
 
-        # Tool Bar
+        # Toolbar for additional actions
         tool_frame = tk.Frame(left_frame)
         tool_frame.pack(fill=tk.X)
 
@@ -69,7 +74,6 @@ class ClientApp:
             side=tk.LEFT
         )
 
-        # Call Buttons
         tk.Button(
             tool_frame,
             text="Video Call",
@@ -85,7 +89,7 @@ class ClientApp:
             fg="white",
         ).pack(side=tk.RIGHT, padx=2)
 
-        # -- Right Side: User List & Rooms --
+        # Right sidebar for users and rooms
         right_frame = tk.Frame(self.root, width=200, bg="lightgray")
         right_frame.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -100,6 +104,7 @@ class ClientApp:
         self.room_listbox.bind("<Double-1>", self.join_room)
 
     def connect_to_server(self):
+        """Prompts for server IP and username, then establishes connection."""
         host = simpledialog.askstring(
             "Server", "Enter Server IP:", initialvalue="127.0.0.1"
         )
@@ -114,7 +119,6 @@ class ClientApp:
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect((host, protocol.PORT))
 
-            # Send Login Packet
             with self.send_lock:
                 protocol.send_packet(
                     self.client_socket, protocol.CMD_LOGIN, {"username": self.username}
@@ -122,7 +126,7 @@ class ClientApp:
 
             self.is_connected = True
 
-            # Start Listening Thread
+            # Start listening thread
             threading.Thread(target=self.listen_server, daemon=True).start()
             self.root.title(f"PyChat Pro - Logged in as {self.username}")
 
@@ -130,9 +134,8 @@ class ClientApp:
             messagebox.showerror("Error", f"Could not connect: {e}")
             self.root.quit()
 
-    # --- Core Chat Logic ---
-
     def select_user(self, event):
+        """Handles user selection from the listbox for private messaging."""
         selection = self.user_listbox.curselection()
         if selection:
             user = self.user_listbox.get(selection[0])
@@ -149,18 +152,17 @@ class ClientApp:
             self.root.title(f"PyChat Pro - Logged in as {self.username}")
 
     def send_msg(self, event=None):
+        """Sends a text message to the selected target (All or Private)."""
         text = self.msg_entry.get()
         if not text:
             return
 
         with self.send_lock:
             if self.target_user == "All":
-                # Public
                 protocol.send_packet(
                     self.client_socket, protocol.CMD_MSG, {"text": text, "to": "All"}
                 )
             else:
-                # Private
                 protocol.send_packet(
                     self.client_socket,
                     protocol.CMD_MSG,
@@ -170,6 +172,7 @@ class ClientApp:
         self.msg_entry.delete(0, tk.END)
 
     def create_room(self):
+        """Prompts user to create a new chat room."""
         room_name = simpledialog.askstring("Room", "New Room Name:")
         if room_name:
             password = simpledialog.askstring(
@@ -183,6 +186,7 @@ class ClientApp:
                 )
 
     def join_room(self, event):
+        """Handles joining an existing room from the listbox."""
         selection = self.room_listbox.curselection()
         if selection:
             room = self.room_listbox.get(selection[0])
@@ -197,6 +201,7 @@ class ClientApp:
                 )
 
     def append_message(self, msg_type, sender, content):
+        """Appends a message to the chat area with appropriate formatting."""
         self.chat_area.config(state="normal")
         timestamp = time.strftime("%H:%M")
 
@@ -216,9 +221,8 @@ class ClientApp:
         self.chat_area.see(tk.END)
         self.chat_area.config(state="disabled")
 
-    # --- File Sharing ---
-
     def send_file(self):
+        """Opens file dialog and sends selected file."""
         filepath = filedialog.askopenfilename()
         if not filepath:
             return
@@ -226,7 +230,6 @@ class ClientApp:
         filename = os.path.basename(filepath)
         file_size = os.path.getsize(filepath)
 
-        # Read file bytes
         with open(filepath, "rb") as f:
             file_bytes = f.read()
 
@@ -242,7 +245,7 @@ class ClientApp:
         self.append_message("text", "Me", f"Sent file: {filename}")
 
     def save_incoming_file(self, filename, content):
-        # Auto save to 'Downloads' folder in project dir
+        """Saves received file content to the downloads directory."""
         if not os.path.exists("downloads"):
             os.makedirs("downloads")
         save_path = os.path.join("downloads", f"received_{filename}")
@@ -250,31 +253,26 @@ class ClientApp:
             f.write(content)
         return save_path
 
-    # --- Video/Voice Calling (Threaded) ---
-
     def start_call(self, mode="video"):
+        """Initiates a video or voice call with the selected user."""
         if self.target_user == "All":
             messagebox.showwarning("Call", "Select a user from the list to call.")
             return
 
-        # Open Call Window
         self.setup_call_window(target=self.target_user, incoming=False, mode=mode)
 
-        # Launch transmission threads
         if mode == "video":
             threading.Thread(
                 target=self.send_video_stream, args=(self.target_user,), daemon=True
             ).start()
 
-        # Audio is always sent in both modes
         threading.Thread(
             target=self.send_audio_stream, args=(self.target_user,), daemon=True
         ).start()
 
     def setup_call_window(self, target, incoming=False, mode="video"):
+        """Creates the call window UI."""
         if self.call_window:
-            # If already in call (e.g. voice), and upgrading to video, handle it?
-            # For now, simple check
             return
 
         self.in_call = True
@@ -286,7 +284,6 @@ class ClientApp:
         self.call_window.title(title)
         self.call_window.protocol("WM_DELETE_WINDOW", self.end_call)
 
-        # Set default size and background
         self.call_window.geometry("500x400")
 
         if mode == "video":
@@ -295,7 +292,6 @@ class ClientApp:
             )
             self.video_label.pack(fill=tk.BOTH, expand=True)
         else:
-            # Voice Call UI
             self.video_label = tk.Label(
                 self.call_window,
                 text=f"Voice Call in Progress\n\n{target}",
@@ -305,7 +301,6 @@ class ClientApp:
             )
             self.video_label.pack(fill=tk.BOTH, expand=True)
 
-        # End Call Button
         end_btn = tk.Button(
             self.call_window,
             text="End Call",
@@ -317,7 +312,7 @@ class ClientApp:
         end_btn.pack(side=tk.BOTTOM, fill=tk.X, pady=5, padx=5)
 
     def end_call(self):
-        # Notify other user that call is ending
+        """Ends the current call and closes the call window."""
         if self.call_partner:
             if self.client_socket:
                 try:
@@ -343,9 +338,9 @@ class ClientApp:
         self.call_partner = None
 
     def send_video_stream(self, target):
+        """Captures and sends video frames to the call partner."""
         try:
             camera = VideoCamera()
-            # Camera might be None if hardware fails, but VideoCamera now handles fallback
         except Exception as e:
             print(f"[ERROR] Failed to initialize camera: {e}")
             return
@@ -354,7 +349,6 @@ class ClientApp:
             try:
                 frame_bytes = camera.get_frame_bytes()
                 if frame_bytes and self.client_socket:
-                    # Send via server (encrypted again to match receiver expectation)
                     data = {"target": target, "frame": frame_bytes}
                     with self.send_lock:
                         if not protocol.send_packet(
@@ -365,13 +359,14 @@ class ClientApp:
                         ):
                             print("[VIDEO] Failed to send frame")
                             break
-                time.sleep(0.1)  # Cap at ~10 FPS for better performance
+                time.sleep(0.1)
             except Exception as e:
                 print(f"[VIDEO ERROR] {e}")
                 break
         camera.cleanup()
 
     def send_audio_stream(self, target):
+        """Captures and sends audio chunks to the call partner."""
         try:
             mic = AudioRecorder()
             if mic.audio is None:
@@ -400,30 +395,29 @@ class ClientApp:
                             print("[AUDIO] Failed to send chunk")
                             break
                 else:
-                    time.sleep(0.01)  # Prevent CPU spin if no audio
+                    time.sleep(0.01)
             except Exception as e:
                 print(f"[AUDIO ERROR] {e}")
                 break
         mic.stop()
 
     def update_call_video(self, frame_bytes):
-        # Called from network thread
+        """Updates the video label with the received frame."""
         if not self.in_call or not self.call_window:
             return
         try:
             image = Image.open(io.BytesIO(frame_bytes))
             photo = ImageTk.PhotoImage(image)
-            self.video_label.configure(
-                image=photo, text=""
-            )  # Clear text when video arrives
-            self.video_label.image = photo  # keep reference
+            self.video_label.configure(image=photo, text="")
+            self.video_label.image = photo
         except Exception as e:
             print(f"[GUI ERROR] Update video failed: {e}")
 
-    # --- Network Listener ---
-
     def listen_server(self):
-        # Audio player is persistent to reduce lag in startup
+        """
+        Listens for incoming packets from the server and handles them.
+        Runs in a separate thread.
+        """
         try:
             player = AudioPlayer()
         except Exception as e:
@@ -457,7 +451,7 @@ class ClientApp:
                 rooms = data["rooms"]
 
                 self.user_listbox.delete(0, tk.END)
-                self.user_listbox.insert(tk.END, "All")  # broadcast option
+                self.user_listbox.insert(tk.END, "All")
                 for u in users:
                     self.user_listbox.insert(tk.END, u)
 
@@ -472,10 +466,8 @@ class ClientApp:
 
                 msg_type = "private" if is_pvt else "text"
                 if sender == self.username:
-                    sender = "Me"  # Self echo handled locally mostly, but confirmation helpful
+                    sender = "Me"
 
-                # TKINTER Thread Safety: Not purely threadsafe, but append is usually tolerant.
-                # Ideal is root.after, direct call here used for simplicity in code size
                 self.append_message(msg_type, sender, text)
 
             elif cmd == protocol.CMD_FILE:
@@ -485,12 +477,9 @@ class ClientApp:
                 self.append_message("file", sender, f"{filename} (Saved in downloads/)")
 
             elif cmd == protocol.CMD_VIDEO:
-                # If we are not in call, we should probably open window or notify
-                # For this demo: Open window automatically if receiving frames
                 if not self.in_call:
                     sender = data.get("sender")
 
-                    # Ignore stray packets from recently ended call
                     if (
                         sender == self.last_call_partner
                         and (time.time() - self.last_call_end_time) < 3.0
@@ -505,7 +494,6 @@ class ClientApp:
                     )
                     self.in_call = True
 
-                    # Start sending back video/audio
                     threading.Thread(
                         target=self.send_video_stream, args=(sender,), daemon=True
                     ).start()
@@ -514,15 +502,12 @@ class ClientApp:
                     ).start()
 
                 frame = data["frame"]
-                # GUI update must be scheduled on Main Thread for image
                 self.root.after(0, lambda: self.update_call_video(frame))
 
             elif cmd == protocol.CMD_AUDIO:
-                # If receiving audio but not in call, it's a voice call
                 if not self.in_call:
                     sender = data.get("sender")
 
-                    # Ignore stray packets from recently ended call
                     if (
                         sender == self.last_call_partner
                         and (time.time() - self.last_call_end_time) < 3.0
@@ -537,18 +522,15 @@ class ClientApp:
                     )
                     self.in_call = True
 
-                    # Start sending back audio only (Voice Call)
                     threading.Thread(
                         target=self.send_audio_stream, args=(sender,), daemon=True
                     ).start()
 
-                # Play directly in thread (audio is non-blocking)
                 if player and player.stream:
                     chunk = data["chunk"]
                     player.play(chunk)
 
             elif cmd == protocol.CMD_END_CALL:
-                # Other user ended the call
                 self.root.after(0, self.end_call)
                 self.root.after(
                     0,

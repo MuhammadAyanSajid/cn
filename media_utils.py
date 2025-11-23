@@ -3,14 +3,18 @@ import pyaudio
 import threading
 import numpy as np
 
-# Audio Config
+# Audio configuration constants
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 16000  # Reduced from 44100 to save bandwidth
+RATE = 16000
 CHUNK = 1024
 
 
 class AudioRecorder:
+    """
+    Handles audio recording from the microphone.
+    """
+
     def __init__(self):
         try:
             self.audio = pyaudio.PyAudio()
@@ -23,6 +27,7 @@ class AudioRecorder:
             self.recording = False
 
     def start(self):
+        """Starts the audio recording stream."""
         if self.audio is None:
             return
         try:
@@ -40,6 +45,7 @@ class AudioRecorder:
             self.stream = None
 
     def get_chunk(self):
+        """Reads a chunk of audio data from the stream."""
         if self.recording and self.stream:
             try:
                 return self.stream.read(CHUNK, exception_on_overflow=False)
@@ -48,6 +54,7 @@ class AudioRecorder:
         return None
 
     def stop(self):
+        """Stops the audio recording and closes the stream."""
         self.recording = False
         if self.stream:
             try:
@@ -58,6 +65,10 @@ class AudioRecorder:
 
 
 class AudioPlayer:
+    """
+    Handles audio playback.
+    """
+
     def __init__(self):
         try:
             self.audio = pyaudio.PyAudio()
@@ -74,6 +85,7 @@ class AudioPlayer:
             self.stream = None
 
     def play(self, data):
+        """Plays a chunk of audio data."""
         if self.stream:
             try:
                 self.stream.write(data)
@@ -81,6 +93,7 @@ class AudioPlayer:
                 pass
 
     def cleanup(self):
+        """Stops the audio stream and releases resources."""
         if self.stream:
             try:
                 self.stream.stop_stream()
@@ -90,13 +103,16 @@ class AudioPlayer:
 
 
 class VideoCamera:
+    """
+    Handles video capture from the webcam.
+    """
+
     def __init__(self):
         self.cap = None
         try:
-            # Try index 0 first
+            # Try opening default camera (0), then fallback to (1)
             self.cap = cv2.VideoCapture(0)
             if not self.cap.isOpened():
-                # Try index 1 (common for external cams or virtual cams)
                 self.cap = cv2.VideoCapture(1)
                 if not self.cap.isOpened():
                     print("[WARNING] No camera found. Using placeholder.")
@@ -106,6 +122,7 @@ class VideoCamera:
             self.cap = None
 
     def get_frame_bytes(self):
+        """Captures a frame, resizes it, and encodes it as JPEG bytes."""
         frame = None
         if self.cap is not None and self.cap.isOpened():
             try:
@@ -115,11 +132,9 @@ class VideoCamera:
             except:
                 pass
 
+        # If no frame captured, create a placeholder black frame
         if frame is None:
-            # Generate a placeholder frame (black image with text)
             frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            # Add some noise or movement so it looks like a stream?
-            # Just static text is fine for now.
             cv2.putText(
                 frame,
                 "NO CAMERA",
@@ -130,9 +145,8 @@ class VideoCamera:
                 2,
             )
 
-        # Downscale more for network performance (smaller resolution = less data)
+        # Resize and encode frame
         frame = cv2.resize(frame, (240, 180))
-        # Compress to JPEG with lower quality for speed
         success, buffer = cv2.imencode(
             ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 30]
         )
@@ -141,6 +155,7 @@ class VideoCamera:
         return None
 
     def cleanup(self):
+        """Releases the camera resource."""
         if self.cap is not None:
             try:
                 self.cap.release()
