@@ -540,7 +540,7 @@ class ClientApp:
                 self.root.after(
                     0,
                     lambda: messagebox.showinfo(
-                        "Call Ended", "The other user ended the call."
+                        "Call Ended", "Call Ended."
                     ),
                 )
 
