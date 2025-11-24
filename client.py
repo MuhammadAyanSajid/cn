@@ -35,6 +35,7 @@ class ClientApp:
         self.call_partner = None
         self.last_call_partner = None
         self.last_call_end_time = 0
+        self.sending_video = False
 
         self.setup_ui()
 
@@ -262,6 +263,7 @@ class ClientApp:
         self.setup_call_window(target=self.target_user, incoming=False, mode=mode)
 
         if mode == "video":
+            self.sending_video = True
             threading.Thread(
                 target=self.send_video_stream, args=(self.target_user,), daemon=True
             ).start()
@@ -329,6 +331,7 @@ class ClientApp:
             self.last_call_end_time = time.time()
 
         self.in_call = False
+        self.sending_video = False
         if self.call_window:
             try:
                 self.call_window.destroy()
@@ -477,9 +480,8 @@ class ClientApp:
                 self.append_message("file", sender, f"{filename} (Saved in downloads/)")
 
             elif cmd == protocol.CMD_VIDEO:
+                sender = data.get("sender")
                 if not self.in_call:
-                    sender = data.get("sender")
-
                     if (
                         sender == self.last_call_partner
                         and (time.time() - self.last_call_end_time) < 3.0
@@ -495,10 +497,13 @@ class ClientApp:
                     self.in_call = True
 
                     threading.Thread(
-                        target=self.send_video_stream, args=(sender,), daemon=True
-                    ).start()
-                    threading.Thread(
                         target=self.send_audio_stream, args=(sender,), daemon=True
+                    ).start()
+
+                if not self.sending_video:
+                    self.sending_video = True
+                    threading.Thread(
+                        target=self.send_video_stream, args=(sender,), daemon=True
                     ).start()
 
                 frame = data["frame"]
